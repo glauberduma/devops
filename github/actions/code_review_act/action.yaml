@@ -1,0 +1,50 @@
+name: ' Code Review - Azure OpenAI'
+description: 'Revisão automática de código usando Azure OpenAI'
+author: ' glauber.duma@gmail.com'
+
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  github_token:
+    description: 'Token de acesso ao GitHub (geralmente usar secrets.GITHUB_TOKEN)'
+    required: true
+    
+  azure_openai_api_key:
+    description: 'Chave de API do Azure OpenAI'
+    required: true
+    
+  azure_openai_endpoint:
+    description: 'Endpoint do Azure OpenAI (ex: https://seu-resource.openai.azure.com)'
+    required: true
+    
+  azure_openai_deployment:
+    description: 'Nome do deployment/modelo no Azure OpenAI (ex: gpt-4, gpt-35-turbo)'
+    required: true
+    default: 'gpt-4.1'
+    
+  file_extensions:
+    description: 'Extensões de arquivo para analisar (separadas por vírgula)'
+    required: false
+    default: '.cs,.vb,.fs,.xaml,.csproj,.config'
+    
+  system_prompt:
+    description: 'Prompt customizado para o sistema de IA'
+    required: false
+    default: 'Você é um especialista em revisão de código C#/.NET. Analise o código fornecido e identifique: 1) Problemas de segurança, 2) Bugs potenciais, 3) Violações de boas práticas, 4) Oportunidades de melhoria de performance, 5) Sugestões de refatoração. Seja específico e construtivo nas suas recomendações.'
+    
+outputs:
+  comment_id:
+    description: 'ID do comentário criado no PR'
+    
+  files_analyzed:
+    description: 'Número de arquivos analisados'
+    
+  review_summary:
+    description: 'Resumo da revisão (primeiros 200 caracteres)'
+
+runs:
+  using: node24
+  main: dist/index.js
+  

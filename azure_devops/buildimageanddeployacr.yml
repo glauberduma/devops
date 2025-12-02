@@ -1,0 +1,123 @@
+# Template: buildimageanddeployacr.yml
+# Objetivo: Gera uma imagem Docker, escaneia vulnerabilidades com Trivy e faz o deploy no Azure Container Registry (ACR).
+#           Opcionalmente, reinicia uma Azure Container App para utilizar a nova imagem.
+#
+# Parâmetros:
+#   ACR_NAME                   : (Obrigatório) Nome do Azure Container Registry.
+#   IMAGE_NAME                 : (Obrigatório) Nome da imagem a ser gerada.
+#   DOCKER_FILE                : (Obrigatório) Caminho/Nome do Dockerfile.
+#   TRIVY_SEVERITY             : (Opcional) Nível de severidade para falha (CRITICAL, HIGH, MEDIUM, LOW). Default: CRITICAL.
+#   RESTART_CONTAINER          : (Opcional) 'S' para reiniciar a Azure Container App após o deploy. Default: 'N'.
+#   AZURE_RESOURCE_GROUP       : (Opcional) Resource Group da Container App (Obrigatório se RESTART_CONTAINER='S').
+#   AZURE_CONTAINERAPP_NAME    : (Opcional) Nome da Container App (Obrigatório se RESTART_CONTAINER='S').
+#
+#   AZURE_SERVICE_CONNECTION   : (Opcional) Nome da Service Connection do Azure DevOps para autenticação no Azure (Substitui o JSON credentials).
+#   DOCKER_USERNAME            : (Obrigatório) Usuário para login no ACR (passar via variable group ou runtime).
+#   DOCKER_PASSWORD            : (Obrigatório) Senha para login no ACR (passar via variable group ou runtime).
+
+parameters:
+  - name: ACR_NAME
+    type: string
+  - name: IMAGE_NAME
+    type: string
+  - name: DOCKER_FILE
+    type: string
+  - name: TRIVY_SEVERITY
+    type: string
+    default: 'CRITICAL'
+  - name: RESTART_CONTAINER
+    type: string
+    default: 'N'
+  - name: AZURE_RESOURCE_GROUP
+    type: string
+    default: ''
+  - name: AZURE_CONTAINERAPP_NAME
+    type: string
+    default: ''
+  - name: AZURE_SERVICE_CONNECTION
+    type: string
+    default: ''
+  - name: DOCKER_USERNAME
+    type: string
+  - name: DOCKER_PASSWORD
+    type: string
+
+steps:
+  - checkout: self
+    fetchDepth: 0
+    displayName: '🏗 Checkout repository'
+
+  - script: |
+      docker build -t ${{ parameters.ACR_NAME }}/${{ parameters.IMAGE_NAME }}:$(Build.BuildId) -t ${{ parameters.ACR_NAME }}/${{ parameters.IMAGE_NAME }}:latest -f ${{ parameters.DOCKER_FILE }} .
+    displayName: '🚀 Build an image $(Build.BuildId)'
+
+  - script: |
+      echo "🔍 Executando Trivy Scan..."
+      # Executa Trivy via Docker para não depender de instalação no agente
+      docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd):/scan aquasec/trivy image \
+        --severity ${{ parameters.TRIVY_SEVERITY }} \
+        --exit-code 1 \
+        --format table \
+        ${{ parameters.ACR_NAME }}/${{ parameters.IMAGE_NAME }}:latest
+    displayName: '🔍 Trivy - Vulnerability Scan'
+
+  - script: |
+      echo "🚨 VULNERABILIDADES ENCONTRADAS! 🚨"
+      echo "A pipeline falhou devido a vulnerabilidades de nível '${{ parameters.TRIVY_SEVERITY }}' ou superior."
+      echo "Verifique o log da etapa anterior para detalhes."
+    displayName: '❌ Security Check Failed'
+    condition: failed()
+
+  - script: |
+      echo "${{ parameters.DOCKER_PASSWORD }}" | docker login ${{ parameters.ACR_NAME }} -u ${{ parameters.DOCKER_USERNAME }} --password-stdin
+    displayName: '🚀 Login to ACR'
+
+  - script: |
+      docker push ${{ parameters.ACR_NAME }}/${{ parameters.IMAGE_NAME }}:latest
+    displayName: '🚀 Push an image latest'
+
+  - script: |
+      docker push ${{ parameters.ACR_NAME }}/${{ parameters.IMAGE_NAME }}:$(Build.BuildId)
+    displayName: '🚀 Push an image $(Build.BuildId)'
+
+  - script: |
+      docker logout ${{ parameters.ACR_NAME }}
+    displayName: 'Docker Logout'
+    condition: always()
+
+  - task: AzureCLI@2
+    displayName: '🔁 Restart Azure Container Apps revisions'
+    condition: eq('${{ parameters.RESTART_CONTAINER }}', 'S')
+    inputs:
+      azureSubscription: ${{ parameters.AZURE_SERVICE_CONNECTION }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        set -euo pipefail
+        RG="${{ parameters.AZURE_RESOURCE_GROUP }}"
+        APP="${{ parameters.AZURE_CONTAINERAPP_NAME }}"
+
+        if [ -z "$RG" ] || [ -z "$APP" ]; then
+          echo "AZURE_RESOURCE_GROUP e AZURE_CONTAINERAPP_NAME são obrigatórios quando RESTART_CONTAINER = 'S'."
+          exit 1
+        fi
+
+        echo "💡 Garantindo extensão containerapp instalada..."
+        az extension add --name containerapp --yes --upgrade
+
+        echo "ℹ️ Container App: $APP | RG: $RG"
+        
+        echo "🔎 Buscando revisões ativas..."
+        REVISIONS=$(az containerapp revision list -n "$APP" -g "$RG" --query "[?properties.active==\`true\`].name" -o tsv)
+        
+        if [ -z "$REVISIONS" ]; then
+          echo "Nenhuma revisão ativa encontrada para $APP."
+          exit 1
+        fi
+
+        for REV in $REVISIONS; do
+          echo "🔁 Reiniciando revisão: $REV"
+          az containerapp revision restart -n "$APP" -g "$RG" --revision "$REV"
+        done
+
+        echo "✅ Reinício solicitado para todas as revisões ativas."

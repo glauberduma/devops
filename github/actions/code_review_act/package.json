@@ -1,0 +1,40 @@
+{
+  "name": "git-actions-codereview",
+  "version": "2.0.0",
+  "description": "Action para revisão de código usando Azure OpenAI",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-local.js",
+    "test:watch": "nodemon test-local.js",
+    "build": "echo \"No build step required for this action\"",
+    "validate": "node -c index.js && echo \"✅ Syntax OK\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glauberduma/git-actions-codereview.git"
+  },
+  "keywords": [
+    "github-actions",
+    "code-review",
+    "azure-openai",
+    "csharp",
+    "dotnet",
+    "ai"
+  ],
+  "author": "Glauber Duma",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/glauberduma/git-actions-codereview/issues"
+  },
+  "homepage": "https://github.com/glauberduma/git-actions-codereview#readme",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "dotenv": "^17.2.3"
+  }
+}
